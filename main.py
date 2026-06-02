@@ -278,21 +278,32 @@ class LogoMark(RoundedBox):
         super().__init__(**kwargs)
         self.size_hint = (None, None)
         self.size = (dp(size_value), dp(size_value))
-        self.radius = dp(14)
+        self.radius = dp(18)
         self.border_width = 0
         self.bg_color = BLACK if dark else WHITE
-        self.padding = 0
+        self.padding = [dp(9), dp(9), dp(9), dp(9)]
 
-        label = Label(
-            text="КМ",
-            color=WHITE if dark else BLACK,
-            font_size=dp(18),
-            bold=True,
-            halign="center",
-            valign="middle",
-        )
-        label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
-        self.add_widget(label)
+        logo_file = asset_path("logo.png")
+
+        if os.path.exists(logo_file):
+            logo = Image(
+                source=logo_file,
+                allow_stretch=True,
+                keep_ratio=True,
+            )
+            self.add_widget(logo)
+        else:
+            # Резервный вариант, если logo.png не найден рядом с main.py.
+            label = Label(
+                text="КМ",
+                color=WHITE if dark else BLACK,
+                font_size=dp(18),
+                bold=True,
+                halign="center",
+                valign="middle",
+            )
+            label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
+            self.add_widget(label)
 
 
 class StatCard(RoundedBox):
@@ -899,9 +910,9 @@ class SplashScreen(Screen):
         box.add_widget(title)
 
         subtitle = Label(
-            text="ВЫГОДНЫЕ ПРЕДЛОЖЕНИЯ - В ОДИН КЛИК",
+            text="выгодные предложения — в один клик",
             color=(0.75, 0.75, 0.75, 1),
-            font_size=dp(12),
+            font_size=dp(13),
             halign="center",
             valign="middle",
             size_hint_y=None,
