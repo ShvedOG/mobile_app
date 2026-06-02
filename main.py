@@ -1041,7 +1041,7 @@ class SplashScreen(Screen):
         self.splash_icon = None
         self.loading_icon = None
 
-        root = Surface(orientation="vertical", bg_color=BLACK)
+        root = Surface(orientation="vertical", bg_color=WHITE)
         center = AnchorLayout(anchor_x="center", anchor_y="center")
 
         box = BoxLayout(
@@ -1090,7 +1090,7 @@ class SplashScreen(Screen):
 
         title = Label(
             text="Клик Маркет",
-            color=WHITE,
+            color=BLACK,
             font_size=dp(30),
             bold=True,
             halign="center",
@@ -1103,7 +1103,7 @@ class SplashScreen(Screen):
 
         subtitle = Label(
             text="выгодные предложения — в один клик",
-            color=(0.75, 0.75, 0.75, 1),
+            color=BLACK,
             font_size=dp(13),
             halign="center",
             valign="middle",
@@ -1135,7 +1135,7 @@ class SplashScreen(Screen):
             loader_anchor.add_widget(
                 Label(
                     text="Загрузка...",
-                    color=(0.75, 0.75, 0.75, 1),
+                    color=BLACK,
                     font_size=dp(12),
                     halign="center",
                     valign="middle",
@@ -1178,6 +1178,9 @@ class PhoneShell(Screen):
         self.home_saved_scroll_y = 1
         self.catalog_scroll = None
         self.catalog_content = None
+        self.catalog_products_box = None
+        self.catalog_products_title = None
+        self.catalog_category_button = None
         self.nav_items = {}
 
         root = Surface(orientation="vertical", bg_color=PAGE_BG)
@@ -1350,11 +1353,8 @@ class PhoneShell(Screen):
         button_row.add_widget(info_btn)
         hero.add_widget(button_row)
 
-        stats = GridLayout(cols=3, spacing=dp(8), size_hint_y=None, height=dp(76))
-        stats.add_widget(StatCard("4", "категории"))
-        stats.add_widget(StatCard("24+", "товара"))
-        stats.add_widget(StatCard("1", "интерфейс"))
-        hero.add_widget(stats)
+        # Статистические карточки на главной убраны по требованию.
+        # В hero-блоке остаются только описание и две кнопки: "Начать поиск" и "Как работает".
         content.add_widget(hero)
 
         content.add_widget(self._section_title("ПРЕИМУЩЕСТВА", "Что умеет Клик Маркет"))
@@ -1453,45 +1453,200 @@ class PhoneShell(Screen):
         scroll, content = self._scroll_page()
         self.catalog_scroll = scroll
         self.catalog_content = content
+        self.catalog_products_box = None
+        self.catalog_products_title = None
+        self.catalog_category_button = None
 
         hero = self._card(bg_color=(0.985, 0.985, 0.985, 1), spacing=dp(12))
         hero.add_widget(AppLabel("КАТАЛОГ", font_size=11, color=TEXT_MUTED, bold=True))
         hero.add_widget(AppLabel("Каталог товаров", font_size=31, bold=True))
         hero.add_widget(
             AppLabel(
-                "Выбери категорию, найди товар и добавь выгодное предложение в корзину.",
+                "Сначала показываются все товары. Выбери категорию из списка или начни вводить название товара.",
                 font_size=14,
                 color=(0.3, 0.3, 0.3, 1),
             )
         )
         content.add_widget(hero)
 
-        content.add_widget(AppLabel("Категории", font_size=26, bold=True))
-        category_grid = GridLayout(cols=2, spacing=dp(10), size_hint_y=None)
-        category_grid.bind(minimum_height=category_grid.setter("height"))
-        for title, subtitle in CATEGORIES:
-            category_grid.add_widget(
-                CategoryCard(
-                    self.app_ref,
-                    title,
-                    subtitle,
-                    active=self.app_ref.selected_category == title,
-                )
-            )
-        content.add_widget(category_grid)
+        controls = self._card(spacing=dp(10), padding=[dp(14), dp(14), dp(14), dp(14)])
+        controls.add_widget(AppLabel("Фильтр каталога", font_size=19, bold=True))
 
-        content.add_widget(self._section_title("ТОВАРЫ", self.app_ref.selected_category))
-        content.add_widget(InputBox("Поиск в каталоге..."))
+        current_category = self.app_ref.catalog_category_filter
+        category_text = "Все товары" if current_category == "Все" else current_category
+        self.catalog_category_button = AppButton(
+            text=f"Категория: {category_text}  ▼",
+            fixed_height=48,
+            bg_color=WHITE,
+            text_color=BLACK,
+            border_color=BLACK,
+            radius=dp(15),
+        )
+        self.catalog_category_button.bind(on_release=lambda instance: self.open_catalog_category_menu())
+        controls.add_widget(self.catalog_category_button)
 
-        products = [
-            product for product in PRODUCTS
-            if product["category"] == self.app_ref.selected_category
-        ]
+        search_box = InputBox("Поиск в каталоге...")
+        search_box.input.text = self.app_ref.catalog_search_query
+        search_box.input.bind(text=lambda instance, value: self.on_catalog_search_change(value))
+        controls.add_widget(search_box)
+        content.add_widget(controls)
 
-        for product in products:
-            content.add_widget(ProductCard(self.app_ref, product))
+        products_header = BoxLayout(orientation="vertical", spacing=dp(2), size_hint_y=None)
+        products_header.bind(minimum_height=products_header.setter("height"))
+        products_header.add_widget(AppLabel("ТОВАРЫ", font_size=11, color=TEXT_MUTED, bold=True))
+        self.catalog_products_title = AppLabel(self.catalog_title_text(), font_size=26, bold=True)
+        products_header.add_widget(self.catalog_products_title)
+        content.add_widget(products_header)
+
+        products_box = BoxLayout(
+            orientation="vertical",
+            spacing=dp(12),
+            size_hint_y=None,
+        )
+        products_box.bind(minimum_height=products_box.setter("height"))
+        self.catalog_products_box = products_box
+        content.add_widget(products_box)
+        self.render_catalog_products()
 
         return scroll
+
+    def catalog_title_text(self):
+        category = self.app_ref.catalog_category_filter
+        query = self.app_ref.catalog_search_query.strip()
+
+        if category == "Все" and not query:
+            return "Все товары"
+        if category != "Все" and not query:
+            return category
+        if category == "Все" and query:
+            return f"Результаты: {query}"
+        return f"{category}: {query}"
+
+    def get_catalog_products(self):
+        category = self.app_ref.catalog_category_filter
+        query = self.app_ref.catalog_search_query.strip().lower()
+        result = []
+
+        for product in PRODUCTS:
+            category_ok = category == "Все" or product["category"] == category
+            searchable_text = (
+                f"{product['name']} {product['category']} "
+                f"{product['source']} {product.get('description', '')}"
+            ).lower()
+            search_ok = not query or query in searchable_text
+
+            if category_ok and search_ok:
+                result.append(product)
+
+        return result
+
+    def render_catalog_products(self):
+        if not self.catalog_products_box:
+            return
+
+        self.catalog_products_box.clear_widgets()
+
+        if self.catalog_products_title:
+            self.catalog_products_title.text = self.catalog_title_text()
+
+        products = self.get_catalog_products()
+
+        if not products:
+            empty = self._card(spacing=dp(8))
+            empty.add_widget(AppLabel("Ничего не найдено", font_size=22, bold=True, halign="center"))
+            empty.add_widget(
+                AppLabel(
+                    "Попробуй изменить запрос или выбрать другую категорию.",
+                    font_size=14,
+                    color=TEXT_MUTED,
+                    halign="center",
+                )
+            )
+            self.catalog_products_box.add_widget(empty)
+            return
+
+        for product in products:
+            self.catalog_products_box.add_widget(ProductCard(self.app_ref, product))
+
+    def on_catalog_search_change(self, text):
+        self.app_ref.catalog_search_query = text.strip()
+        self.render_catalog_products()
+
+    def set_catalog_category_filter(self, category, modal=None):
+        self.app_ref.catalog_category_filter = category
+        if category != "Все":
+            self.app_ref.selected_category = category
+        self.app_ref.save_state()
+
+        if modal is not None:
+            modal.dismiss()
+
+        self.open_tab("catalog", preserve_scroll=True)
+
+    def open_catalog_category_menu(self):
+        modal = ModalView(
+            size_hint=(1, 1),
+            auto_dismiss=True,
+            background_color=(0, 0, 0, 0.45),
+        )
+
+        anchor = AnchorLayout(
+            anchor_x="center",
+            anchor_y="center",
+            padding=[dp(16), dp(16), dp(16), dp(16)],
+        )
+
+        card = RoundedBox(
+            orientation="vertical",
+            size_hint=(None, None),
+            width=dp(344),
+            height=dp(420),
+            padding=[dp(16), dp(16), dp(16), dp(16)],
+            spacing=dp(10),
+            radius=dp(26),
+            bg_color=WHITE,
+            border_color=BORDER,
+        )
+
+        top = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44), spacing=dp(10))
+        top.add_widget(AppLabel("Выбор категории", font_size=24, bold=True, fixed_height=44))
+        close_btn = AppButton(
+            text="×",
+            fixed_width=44,
+            fixed_height=44,
+            bg_color=WHITE,
+            text_color=BLACK,
+            border_color=BLACK,
+            radius=dp(15),
+            font_size_value=20,
+        )
+        close_btn.bind(on_release=lambda instance: modal.dismiss())
+        top.add_widget(close_btn)
+        card.add_widget(top)
+
+        category_options = [("Все", "Показать все товары")] + [
+            (title, subtitle) for title, subtitle in CATEGORIES
+        ]
+
+        for category, subtitle in category_options:
+            is_active = self.app_ref.catalog_category_filter == category
+            label = "Все товары" if category == "Все" else category
+            button = AppButton(
+                text=label,
+                fixed_height=50,
+                bg_color=BLACK if is_active else WHITE,
+                text_color=WHITE if is_active else BLACK,
+                border_color=BLACK,
+                radius=dp(15),
+            )
+            button.bind(
+                on_release=lambda instance, selected=category: self.set_catalog_category_filter(selected, modal)
+            )
+            card.add_widget(button)
+
+        anchor.add_widget(card)
+        modal.add_widget(anchor)
+        modal.open()
 
     def _build_favorites_page(self):
         scroll, content = self._scroll_page()
@@ -1884,6 +2039,8 @@ class ClickMarketApp(App):
         self.favorite_ids = set()
         self.cart_ids = []
         self.selected_category = "Электроника"
+        self.catalog_category_filter = "Все"
+        self.catalog_search_query = ""
         self.is_logged_in = False
         self.profile = {"name": "", "phone": "", "email": ""}
         self.orders = []
@@ -1899,6 +2056,16 @@ class ClickMarketApp(App):
 
     def build(self):
         self.title = "Клик Маркет"
+
+        # Иконка окна приложения на ПК. Файл logo.png должен лежать рядом с main.py.
+        app_icon = asset_path("logo.png")
+        if os.path.exists(app_icon):
+            self.icon = app_icon
+            try:
+                Window.set_icon(app_icon)
+            except Exception as error:
+                print(f"Не удалось установить иконку окна: {error}")
+
         Window.clearcolor = PAGE_BG
         Window.size = (390, 760)
         Window.minimum_width = 360
@@ -1926,6 +2093,7 @@ class ClickMarketApp(App):
             "favorite_ids": [],
             "cart_ids": [],
             "selected_category": "Электроника",
+            "catalog_category_filter": "Все",
             "is_logged_in": False,
             "profile": {"name": "", "phone": "", "email": ""},
             "orders": [],
@@ -1952,6 +2120,8 @@ class ClickMarketApp(App):
         self.favorite_ids = set(int(item) for item in state.get("favorite_ids", []))
         self.cart_ids = [int(item) for item in state.get("cart_ids", [])]
         self.selected_category = state.get("selected_category") or "Электроника"
+        self.catalog_category_filter = state.get("catalog_category_filter") or "Все"
+        self.catalog_search_query = ""
         self.is_logged_in = bool(state.get("is_logged_in", False))
         self.profile = state.get("profile") or {"name": "", "phone": "", "email": ""}
         self.orders = state.get("orders") or []
@@ -1969,6 +2139,8 @@ class ClickMarketApp(App):
         valid_categories = {category[0] for category in CATEGORIES}
         if self.selected_category not in valid_categories:
             self.selected_category = "Электроника"
+        if self.catalog_category_filter != "Все" and self.catalog_category_filter not in valid_categories:
+            self.catalog_category_filter = "Все"
 
     def save_state(self):
         if not self.storage_path:
@@ -1981,6 +2153,7 @@ class ClickMarketApp(App):
             "favorite_ids": sorted(self.favorite_ids),
             "cart_ids": self.cart_ids,
             "selected_category": self.selected_category,
+            "catalog_category_filter": self.catalog_category_filter,
             "is_logged_in": self.is_logged_in,
             "profile": self.profile,
             "orders": self.orders,
@@ -1996,6 +2169,7 @@ class ClickMarketApp(App):
 
     def set_selected_category(self, category):
         self.selected_category = category
+        self.catalog_category_filter = category
         self.save_state()
         current_tab = self.shell.current_tab if self.shell else "home"
         if current_tab not in {"home", "catalog"}:
