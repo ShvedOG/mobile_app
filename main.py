@@ -1171,8 +1171,6 @@ class SplashScreen(Screen):
             height=dp(148),
         )
 
-        # GIF в Kivy обычно стабильнее, чем MP4, особенно при запуске на Windows.
-        # Положи файл phone.gif рядом с main.py.
         phone_gif = asset_path("phone.gif")
         logo_png = asset_path("logo.png")
 
@@ -1214,7 +1212,7 @@ class SplashScreen(Screen):
         box.add_widget(title)
 
         subtitle = Label(
-            text="выгодные предложения — в один клик",
+            text="ВЫГОДНЫЕ ПРЕДЛОЖЕНИЯ - В ОДИН КЛИК",
             color=BLACK,
             font_size=dp(13),
             halign="center",
@@ -2060,7 +2058,7 @@ class PhoneShell(Screen):
         def build(content):
             def add_empty_state():
                 empty = self._card(spacing=dp(9))
-                empty.add_widget(AppLabel("Избранное пустое", font_size=22, bold=True, halign="center"))
+                empty.add_widget(AppLabel("Список пуст", font_size=22, bold=True, halign="center"))
                 empty.add_widget(
                     AppLabel(
                         "Нажми сердечко у товара в каталоге, чтобы сохранить его здесь.",
