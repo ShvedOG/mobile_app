@@ -7,6 +7,7 @@ from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, Line, Rectangle, RoundedRectangle
 from kivy.metrics import dp
+from kivy.graphics.texture import Texture
 from kivy.properties import BooleanProperty, ListProperty, NumericProperty, StringProperty
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.behaviors import ButtonBehavior
@@ -18,6 +19,12 @@ from kivy.uix.modalview import ModalView
 from kivy.uix.screenmanager import FadeTransition, Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
+
+try:
+    from PIL import Image as PILImage, ImageSequence
+except Exception:
+    PILImage = None
+    ImageSequence = None
 
 
 BLACK = (0, 0, 0, 1)
@@ -319,6 +326,64 @@ class StatCard(RoundedBox):
         self.height = dp(76)
         self.add_widget(AppLabel(number, font_size=22, bold=True, fixed_height=30))
         self.add_widget(AppLabel(caption, font_size=11, color=TEXT_MUTED, fixed_height=28))
+
+
+class ProfileSettingToggle(ButtonBehavior, RoundedBox):
+    def __init__(self, app_ref, setting_key, title, subtitle, **kwargs):
+        super().__init__(**kwargs)
+        self.app_ref = app_ref
+        self.setting_key = setting_key
+        self.title_text = title
+        self.subtitle_text = subtitle
+        self.orientation = "horizontal"
+        self.padding = [dp(14), dp(12), dp(12), dp(12)]
+        self.spacing = dp(12)
+        self.bg_color = WHITE
+        self.border_color = BORDER
+        self.radius = dp(18)
+        self.size_hint_y = None
+        self.height = dp(82)
+
+        text_box = BoxLayout(orientation="vertical", spacing=dp(2))
+        text_box.add_widget(AppLabel(title, font_size=15, bold=True, fixed_height=25))
+        text_box.add_widget(AppLabel(subtitle, font_size=12, color=TEXT_MUTED, fixed_height=36))
+
+        icon_anchor = AnchorLayout(
+            anchor_x="center",
+            anchor_y="center",
+            size_hint=(None, 1),
+            width=dp(58),
+        )
+        self.icon = Image(
+            source="",
+            size_hint=(None, None),
+            size=(dp(48), dp(28)),
+            allow_stretch=True,
+            keep_ratio=True,
+        )
+        icon_anchor.add_widget(self.icon)
+
+        self.add_widget(text_box)
+        self.add_widget(icon_anchor)
+        self._update_icon()
+
+    def _is_enabled(self):
+        return bool(self.app_ref.profile_parameters.get(self.setting_key, False))
+
+    def _update_icon(self):
+        icon_file = "toggle_on.png" if self._is_enabled() else "toggle_off.png"
+        self.icon.source = asset_path(icon_file)
+        self.icon.reload()
+
+    def on_press(self):
+        Animation(opacity=0.68, duration=0.06).start(self)
+        Animation(size=(dp(44), dp(25)), duration=0.06).start(self.icon)
+
+    def on_release(self):
+        self.app_ref.toggle_profile_parameter(self.setting_key)
+        self._update_icon()
+        Animation(opacity=1, duration=0.14, t="out_quad").start(self)
+        Animation(size=(dp(48), dp(28)), duration=0.14, t="out_quad").start(self.icon)
 
 
 class CategoryCard(ButtonBehavior, RoundedBox):
@@ -877,24 +942,143 @@ class ProfileModal(ModalView):
         self.add_widget(anchor)
 
 
+class AnimatedGif(Image):
+    """Надежное воспроизведение GIF через ручную смену кадров.
+
+    Стандартный Kivy Image иногда показывает GIF как белый квадрат на Windows.
+    Этот виджет читает кадры через Pillow и сам обновляет texture.
+    """
+
+    def __init__(self, source, fallback_size=(132, 132), **kwargs):
+        super().__init__(source="", **kwargs)
+        self.gif_source = source
+        self.frames = []
+        self.frame_durations = []
+        self.frame_index = 0
+        self._event = None
+        self._fallback_size = fallback_size
+        self._load_gif_frames()
+
+    def _load_gif_frames(self):
+        if PILImage is None or ImageSequence is None:
+            print("Pillow не установлен. Установи: pip install pillow")
+            return
+
+        if not os.path.exists(self.gif_source):
+            print(f"GIF не найден: {self.gif_source}")
+            return
+
+        try:
+            with PILImage.open(self.gif_source) as gif:
+                for frame in ImageSequence.Iterator(gif):
+                    duration = frame.info.get("duration", 60) / 1000
+                    if duration <= 0:
+                        duration = 0.06
+
+                    rgba_frame = frame.convert("RGBA")
+                    width, height = rgba_frame.size
+
+                    texture = Texture.create(size=(width, height), colorfmt="rgba")
+                    texture.blit_buffer(
+                        rgba_frame.tobytes(),
+                        colorfmt="rgba",
+                        bufferfmt="ubyte",
+                    )
+                    texture.flip_vertical()
+
+                    self.frames.append(texture)
+                    self.frame_durations.append(duration)
+
+            if self.frames:
+                self.texture = self.frames[0]
+                self.frame_index = 0
+                print(f"GIF загружен: {self.gif_source}, кадров: {len(self.frames)}")
+            else:
+                print(f"В GIF нет кадров: {self.gif_source}")
+
+        except Exception as error:
+            print(f"Не удалось загрузить GIF {self.gif_source}: {error}")
+
+    def play(self):
+        self.stop()
+        if len(self.frames) <= 1:
+            if self.frames:
+                self.texture = self.frames[0]
+            return
+        self.frame_index = 0
+        self.texture = self.frames[0]
+        self._schedule_next_frame()
+
+    def stop(self):
+        if self._event is not None:
+            self._event.cancel()
+            self._event = None
+
+    def _schedule_next_frame(self):
+        if not self.frames:
+            return
+        delay = self.frame_durations[self.frame_index]
+        self._event = Clock.schedule_once(self._next_frame, delay)
+
+    def _next_frame(self, *args):
+        if not self.frames:
+            return
+        self.frame_index = (self.frame_index + 1) % len(self.frames)
+        self.texture = self.frames[self.frame_index]
+        self._schedule_next_frame()
+
+
 class SplashScreen(Screen):
     def __init__(self, app_ref, **kwargs):
         super().__init__(name="splash", **kwargs)
         self.app_ref = app_ref
-        root = Surface(orientation="vertical", bg_color=BLACK)
+        self.splash_icon = None
 
+        root = Surface(orientation="vertical", bg_color=BLACK)
         center = AnchorLayout(anchor_x="center", anchor_y="center")
+
         box = BoxLayout(
             orientation="vertical",
             size_hint=(None, None),
-            width=dp(260),
-            height=dp(230),
+            width=dp(280),
+            height=dp(280),
             spacing=dp(14),
         )
 
-        logo_anchor = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None, height=dp(84))
-        logo_anchor.add_widget(LogoMark(dark=False, size_value=74))
-        box.add_widget(logo_anchor)
+        icon_anchor = AnchorLayout(
+            anchor_x="center",
+            anchor_y="center",
+            size_hint_y=None,
+            height=dp(148),
+        )
+
+        # GIF в Kivy обычно стабильнее, чем MP4, особенно при запуске на Windows.
+        # Положи файл phone.gif рядом с main.py.
+        phone_gif = asset_path("phone.gif")
+
+        if os.path.exists(phone_gif):
+            self.splash_icon = AnimatedGif(
+                source=phone_gif,
+                allow_stretch=True,
+                keep_ratio=True,
+                size_hint=(None, None),
+                size=(dp(132), dp(132)),
+            )
+            icon_anchor.add_widget(self.splash_icon)
+        elif os.path.exists(logo_png):
+            self.splash_icon = Image(
+                source=logo_png,
+                allow_stretch=True,
+                keep_ratio=True,
+                size_hint=(None, None),
+                size=(dp(132), dp(132)),
+            )
+            icon_anchor.add_widget(self.splash_icon)
+        else:
+            # Резервный вариант, если phone.gif и logo.png не найдены рядом с main.py.
+            icon_anchor.add_widget(LogoMark(dark=False, size_value=96))
+
+        box.add_widget(icon_anchor)
 
         title = Label(
             text="Клик Маркет",
@@ -921,15 +1105,38 @@ class SplashScreen(Screen):
         subtitle.bind(size=lambda instance, size: setattr(instance, "text_size", size))
         box.add_widget(subtitle)
 
-        loader_anchor = AnchorLayout(anchor_x="center", anchor_y="center", size_hint_y=None, height=dp(36))
-        loader = RoundedBox(
+        loader_anchor = AnchorLayout(
+            anchor_x="center",
+            anchor_y="center",
+            size_hint_y=None,
+            height=dp(28),
+        )
+
+        loader_bg = RoundedBox(
             size_hint=(None, None),
-            size=(dp(118), dp(6)),
+            size=(dp(136), dp(6)),
             radius=dp(3),
             bg_color=(0.26, 0.26, 0.26, 1),
             border_width=0,
         )
-        loader_anchor.add_widget(loader)
+
+        self.loader_fill = RoundedBox(
+            size_hint=(None, None),
+            size=(dp(0), dp(6)),
+            radius=dp(3),
+            bg_color=WHITE,
+            border_width=0,
+        )
+
+        loader_stack = AnchorLayout(
+            anchor_x="left",
+            anchor_y="center",
+            size_hint=(None, None),
+            size=(dp(136), dp(6)),
+        )
+        loader_stack.add_widget(loader_bg)
+        loader_stack.add_widget(self.loader_fill)
+        loader_anchor.add_widget(loader_stack)
         box.add_widget(loader_anchor)
 
         box.opacity = 0
@@ -939,7 +1146,17 @@ class SplashScreen(Screen):
         self.box = box
 
     def on_enter(self, *args):
+        # Перезапускаем GIF с первого кадра при каждом входе на splash.
+        if hasattr(self.splash_icon, "play"):
+            self.splash_icon.play()
+
+        self.loader_fill.width = 0
         Animation(opacity=1, duration=0.55, t="out_quad").start(self.box)
+        Animation(width=dp(136), duration=5, t="linear").start(self.loader_fill)
+
+    def on_leave(self, *args):
+        if hasattr(self.splash_icon, "stop"):
+            self.splash_icon.stop()
 
 
 class PhoneShell(Screen):
@@ -1485,6 +1702,17 @@ class PhoneShell(Screen):
         stats_btn.bind(on_release=lambda instance: self.open_profile_stats())
         actions.add_widget(stats_btn)
 
+        params_btn = AppButton(
+            text="Параметры",
+            fixed_height=48,
+            bg_color=WHITE,
+            text_color=BLACK if self.app_ref.is_logged_in else TEXT_MUTED,
+            border_color=BLACK if self.app_ref.is_logged_in else BORDER,
+            radius=dp(15),
+        )
+        params_btn.bind(on_release=lambda instance: self.open_profile_parameters())
+        actions.add_widget(params_btn)
+
         content.add_widget(actions)
 
         return scroll
@@ -1586,24 +1814,62 @@ class PhoneShell(Screen):
             return
 
         def build(content):
+            profile = self.app_ref.profile
             orders_total = sum(order.get("total", 0) for order in self.app_ref.orders)
-            stats_grid = GridLayout(cols=2, spacing=dp(9), size_hint_y=None, height=dp(248))
+
+            user_card = self._card(spacing=dp(8))
+            user_card.add_widget(AppLabel("Пользователь", font_size=20, bold=True))
+            user_card.add_widget(AppLabel(f"Имя: {profile.get('name') or 'Пользователь'}", font_size=14, color=TEXT_DARK))
+            user_card.add_widget(AppLabel(f"Телефон: {profile.get('phone') or 'не указан'}", font_size=14, color=TEXT_MUTED))
+            user_card.add_widget(AppLabel(f"Почта: {profile.get('email') or 'не указана'}", font_size=14, color=TEXT_MUTED))
+            content.add_widget(user_card)
+
+            stats_grid = GridLayout(cols=2, spacing=dp(9), size_hint_y=None, height=dp(166))
             stats_grid.add_widget(StatCard(str(len(self.app_ref.favorite_ids)), "в избранном"))
             stats_grid.add_widget(StatCard(str(len(self.app_ref.cart_ids)), "в корзине"))
             stats_grid.add_widget(StatCard(str(len(self.app_ref.orders)), "заказов"))
             stats_grid.add_widget(StatCard(f"{orders_total} ₽", "сумма заказов"))
-            stats_grid.add_widget(StatCard(str(len(PRODUCTS)), "товаров"))
-            stats_grid.add_widget(StatCard("4", "категории"))
             content.add_widget(stats_grid)
 
-            settings = self._card(spacing=dp(8))
-            settings.add_widget(AppLabel("Параметры", font_size=20, bold=True))
-            settings.add_widget(AppLabel("✓ Уведомления о снижении цены", font_size=14))
-            settings.add_widget(AppLabel("✓ Показывать выгодные предложения первыми", font_size=14))
-            settings.add_widget(AppLabel("□ Сохранять историю выбора", font_size=14))
-            content.add_widget(settings)
-
         ProfileModal(self.app_ref, "Статистика", build).open()
+
+    def open_profile_parameters(self):
+        if not self._require_login():
+            return
+
+        def build(content):
+            content.add_widget(
+                AppLabel(
+                    "Управляй поведением приложения. Каждый параметр переключается отдельной кнопкой.",
+                    font_size=13,
+                    color=TEXT_MUTED,
+                    fixed_height=44,
+                )
+            )
+
+            rows = [
+                (
+                    "price_alerts",
+                    "Уведомления о снижении цены",
+                    "Показывать уведомления, когда у выбранного товара появляется более выгодная цена.",
+                ),
+                (
+                    "best_first",
+                    "Выгодные предложения первыми",
+                    "Сортировать предложения так, чтобы самый дешевый вариант был выше остальных.",
+                ),
+                (
+                    "save_history",
+                    "Сохранять историю выбора",
+                    "Запоминать просмотренные товары и действия для будущих рекомендаций.",
+                ),
+            ]
+
+            for key, title, subtitle in rows:
+                content.add_widget(ProfileSettingToggle(self.app_ref, key, title, subtitle))
+
+        ProfileModal(self.app_ref, "Параметры", build).open()
+
 
 class ClickMarketApp(App):
     def __init__(self, **kwargs):
@@ -1614,6 +1880,11 @@ class ClickMarketApp(App):
         self.is_logged_in = False
         self.profile = {"name": "", "phone": "", "email": ""}
         self.orders = []
+        self.profile_parameters = {
+            "price_alerts": True,
+            "best_first": True,
+            "save_history": False,
+        }
         self.last_tab = "home"
         self.storage_path = None
         self.shell = None
@@ -1636,7 +1907,7 @@ class ClickMarketApp(App):
         self.manager.add_widget(self.splash)
         self.manager.add_widget(self.shell)
 
-        Clock.schedule_once(self._open_app_after_splash, 1.65)
+        Clock.schedule_once(self._open_app_after_splash, 5)
         Clock.schedule_once(lambda dt: self.shell.open_tab(self.last_tab), 0)
         return self.manager
 
@@ -1651,6 +1922,11 @@ class ClickMarketApp(App):
             "is_logged_in": False,
             "profile": {"name": "", "phone": "", "email": ""},
             "orders": [],
+            "profile_parameters": {
+                "price_alerts": True,
+                "best_first": True,
+                "save_history": False,
+            },
             "last_tab": "home",
         }
 
@@ -1672,6 +1948,12 @@ class ClickMarketApp(App):
         self.is_logged_in = bool(state.get("is_logged_in", False))
         self.profile = state.get("profile") or {"name": "", "phone": "", "email": ""}
         self.orders = state.get("orders") or []
+        default_parameters = self._default_state()["profile_parameters"]
+        loaded_parameters = state.get("profile_parameters") or {}
+        self.profile_parameters = {
+            key: bool(loaded_parameters.get(key, default_value))
+            for key, default_value in default_parameters.items()
+        }
         self.last_tab = state.get("last_tab") or "home"
 
         if self.last_tab not in {"home", "catalog", "cart", "profile"}:
@@ -1695,6 +1977,7 @@ class ClickMarketApp(App):
             "is_logged_in": self.is_logged_in,
             "profile": self.profile,
             "orders": self.orders,
+            "profile_parameters": self.profile_parameters,
             "last_tab": current_tab,
         }
 
@@ -1714,6 +1997,14 @@ class ClickMarketApp(App):
 
     def on_stop(self):
         self.save_state()
+
+    def toggle_profile_parameter(self, setting_key):
+        if setting_key not in self.profile_parameters:
+            return
+        self.profile_parameters[setting_key] = not self.profile_parameters[setting_key]
+        self.save_state()
+        status = "включен" if self.profile_parameters[setting_key] else "выключен"
+        self.toast(f"Параметр {status}")
 
     def toggle_favorite(self, product_id):
         if product_id in self.favorite_ids:
