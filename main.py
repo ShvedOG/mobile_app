@@ -445,6 +445,58 @@ class FavoriteIconButton(ButtonBehavior, RoundedBox):
         Animation(size=(dp(24), dp(24)), duration=0.14, t="out_quad").start(self.icon)
 
 
+class CatalogFilterButton(ButtonBehavior, RoundedBox):
+    def __init__(self, text, icon_file="list.png", **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "horizontal"
+        self.padding = [dp(16), 0, dp(14), 0]
+        self.spacing = dp(8)
+        self.size_hint_y = None
+        self.height = dp(48)
+        self.radius = dp(15)
+        self.bg_color = WHITE
+        self.border_color = BLACK
+        self.border_width = 1
+
+        self.label = Label(
+            text=text,
+            color=BLACK,
+            font_size=dp(14),
+            bold=True,
+            halign="center",
+            valign="middle",
+            shorten=True,
+            shorten_from="right",
+        )
+        self.label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
+
+        icon_anchor = AnchorLayout(
+            anchor_x="center",
+            anchor_y="center",
+            size_hint=(None, 1),
+            width=dp(30),
+        )
+        self.icon = Image(
+            source=asset_path(icon_file),
+            size_hint=(None, None),
+            size=(dp(20), dp(20)),
+            allow_stretch=True,
+            keep_ratio=True,
+        )
+        icon_anchor.add_widget(self.icon)
+
+        self.add_widget(self.label)
+        self.add_widget(icon_anchor)
+
+    def on_press(self):
+        Animation(opacity=0.65, duration=0.06).start(self)
+        Animation(size=(dp(18), dp(18)), duration=0.06).start(self.icon)
+
+    def on_release(self):
+        Animation(opacity=1, duration=0.14, t="out_quad").start(self)
+        Animation(size=(dp(20), dp(20)), duration=0.14, t="out_quad").start(self.icon)
+
+
 class ProductCard(RoundedBox):
     def __init__(self, app_ref, product, **kwargs):
         super().__init__(**kwargs)
@@ -593,6 +645,66 @@ class InputBox(RoundedBox):
         self.add_widget(self.input)
 
 
+class PhoneInputBox(RoundedBox):
+    """Поле телефона в формате +7 и ровно 10 вводимых цифр.
+
+    Пользователь видит фиксированный префикс +7, а сам вводит только
+    оставшиеся 10 цифр номера.
+    """
+
+    def __init__(self, hint_text="000 000 00 00", **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "horizontal"
+        self.size_hint_y = None
+        self.height = dp(52)
+        self.radius = dp(15)
+        self.bg_color = WHITE
+        self.border_color = BORDER
+        self.padding = [dp(14), 0, dp(14), 0]
+        self.spacing = dp(8)
+
+        prefix = Label(
+            text="+7",
+            color=BLACK,
+            font_size=dp(15),
+            bold=True,
+            halign="center",
+            valign="middle",
+            size_hint=(None, 1),
+            width=dp(30),
+        )
+        prefix.bind(size=lambda instance, size: setattr(instance, "text_size", size))
+
+        self.input = TextInput(
+            hint_text=hint_text,
+            multiline=False,
+            input_filter="int",
+            background_normal="",
+            background_active="",
+            background_color=(1, 1, 1, 0),
+            foreground_color=BLACK,
+            cursor_color=BLACK,
+            font_size=dp(14),
+            padding=[0, dp(15), 0, 0],
+        )
+        self.input.bind(text=self._limit_digits)
+
+        self.add_widget(prefix)
+        self.add_widget(self.input)
+
+    def _limit_digits(self, instance, value):
+        digits = "".join(ch for ch in value if ch.isdigit())[:10]
+        if value != digits:
+            instance.text = digits
+            instance.cursor = (len(digits), 0)
+
+    def digits(self):
+        return "".join(ch for ch in self.input.text if ch.isdigit())[:10]
+
+    def phone(self):
+        return "+7" + self.digits()
+
+
 class Toast(RoundedBox):
     def __init__(self, text, **kwargs):
         super().__init__(**kwargs)
@@ -687,18 +799,18 @@ class AuthModal(ModalView):
             self.error_label.text = text
 
     def _build_login_form(self):
-        card = self._modal_card(292)
+        card = self._modal_card(340)
         card.add_widget(self._title_row("Вход"))
         card.add_widget(
             AppLabel(
-                "Введите номер телефона. На него придет четырехзначный код подтверждения.",
+                "Введите номер телефона. Префикс +7 уже добавлен — укажите 10 цифр номера.",
                 font_size=13,
                 color=TEXT_MUTED,
                 fixed_height=44,
             )
         )
 
-        self.phone_box = InputBox("Номер телефона")
+        self.phone_box = PhoneInputBox()
         card.add_widget(self.phone_box)
 
         self.error_label = AppLabel("", font_size=12, color=PINK, fixed_height=22)
@@ -738,16 +850,16 @@ class AuthModal(ModalView):
         )
 
     def _request_login_code(self):
-        phone = self.phone_box.input.text.strip()
-        if len(phone) < 4:
-            self._set_error("Введите номер телефона")
+        phone_digits = self.phone_box.digits()
+        if len(phone_digits) != 10:
+            self._set_error("Введите 10 цифр номера после +7")
             return
 
-        self.auth_payload = {"phone": phone}
+        self.auth_payload = {"phone": self.phone_box.phone()}
         self._build_code_form("login")
 
     def _build_register_form(self):
-        card = self._modal_card(414)
+        card = self._modal_card(480)
         card.add_widget(self._title_row("Регистрация"))
         card.add_widget(
             AppLabel(
@@ -759,7 +871,7 @@ class AuthModal(ModalView):
         )
 
         self.name_box = InputBox("Ваше имя")
-        self.register_phone_box = InputBox("Номер телефона")
+        self.register_phone_box = PhoneInputBox()
         self.email_box = InputBox("Почта")
         card.add_widget(self.name_box)
         card.add_widget(self.register_phone_box)
@@ -803,14 +915,14 @@ class AuthModal(ModalView):
 
     def _request_register_code(self):
         name = self.name_box.input.text.strip()
-        phone = self.register_phone_box.input.text.strip()
+        phone_digits = self.register_phone_box.digits()
         email = self.email_box.input.text.strip()
 
         if not name:
             self._set_error("Введите имя")
             return
-        if len(phone) < 4:
-            self._set_error("Введите номер телефона")
+        if len(phone_digits) != 10:
+            self._set_error("Введите 10 цифр номера после +7")
             return
         if "@" not in email or "." not in email:
             self._set_error("Введите корректную почту")
@@ -818,13 +930,13 @@ class AuthModal(ModalView):
 
         self.auth_payload = {
             "name": name,
-            "phone": phone,
+            "phone": self.register_phone_box.phone(),
             "email": email,
         }
         self._build_code_form("register")
 
     def _build_code_form(self, auth_type):
-        card = self._modal_card(288)
+        card = self._modal_card(318)
         card.add_widget(self._title_row("Введите код"))
         card.add_widget(
             AppLabel(
@@ -1374,36 +1486,56 @@ class PhoneShell(Screen):
         self.home_steps_target = steps_title
         content.add_widget(steps_title)
         steps = [
-            ("01", "Выбор категории", "Пользователь открывает раздел \"Каталог\" и выбирает нужную категорию."),
-            ("02", "Поиск товара", "Внутри категории можно найти товар и посмотреть подходящие предложения."),
-            ("03", "Сравнение", "Карточки показывают цену, источник, краткое описание и доступные действия."),
-            ("04", "Выбор", "Товар можно добавить в избранное или положить в корзину."),
+            ("one.png", "01", "Выбор категории", "Пользователь открывает раздел \"Каталог\" и выбирает нужную категорию."),
+            ("two.png", "02", "Поиск товара", "Внутри категории можно найти товар и посмотреть подходящие предложения."),
+            ("three.png", "03", "Сравнение", "Карточки показывают цену, источник, краткое описание и доступные действия."),
+            ("four.png", "04", "Выбор", "Товар можно добавить в избранное или положить в корзину."),
         ]
-        for number, title, text in steps:
-            row = self._card(orientation="horizontal", spacing=dp(12))
-            number_box = RoundedBox(
-                size_hint=(None, None),
-                size=(dp(40), dp(40)),
-                radius=dp(20),
-                bg_color=BLACK,
-                border_width=0,
+        for icon_file, fallback_number, title, text in steps:
+            row = self._card(
+                orientation="horizontal",
+                spacing=dp(12),
+                padding=[dp(16), dp(15), dp(16), dp(15)],
             )
-            number_label = Label(
-                text=number,
-                color=WHITE,
-                bold=True,
-                font_size=dp(12),
-                halign="center",
-                valign="middle",
+
+            # Иконка шага без черного кружка. AnchorLayout держит PNG ровно
+            # по центру строки независимо от высоты текста справа.
+            icon_anchor = AnchorLayout(
+                anchor_x="center",
+                anchor_y="center",
+                size_hint=(None, 1),
+                width=dp(48),
             )
-            number_label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
-            number_box.add_widget(number_label)
+            icon_path = asset_path(icon_file)
+            if os.path.exists(icon_path):
+                step_icon = Image(
+                    source=icon_path,
+                    size_hint=(None, None),
+                    size=(dp(36), dp(36)),
+                    allow_stretch=True,
+                    keep_ratio=True,
+                )
+                icon_anchor.add_widget(step_icon)
+            else:
+                # Резерв без кружка, чтобы не ломать геометрию при отсутствии PNG.
+                number_label = Label(
+                    text=fallback_number,
+                    color=BLACK,
+                    bold=True,
+                    font_size=dp(14),
+                    halign="center",
+                    valign="middle",
+                    size_hint=(None, None),
+                    size=(dp(36), dp(36)),
+                )
+                number_label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
+                icon_anchor.add_widget(number_label)
 
             text_box = BoxLayout(orientation="vertical", spacing=dp(4))
             bind_adaptive_height(text_box)
             text_box.add_widget(AppLabel(title, font_size=17, bold=True))
             text_box.add_widget(AppLabel(text, font_size=13, color=(0.3, 0.3, 0.3, 1)))
-            row.add_widget(number_box)
+            row.add_widget(icon_anchor)
             row.add_widget(text_box)
             content.add_widget(row)
 
@@ -1474,13 +1606,9 @@ class PhoneShell(Screen):
 
         current_category = self.app_ref.catalog_category_filter
         category_text = "Все товары" if current_category == "Все" else current_category
-        self.catalog_category_button = AppButton(
-            text=f"Категория: {category_text}  ▼",
-            fixed_height=48,
-            bg_color=WHITE,
-            text_color=BLACK,
-            border_color=BLACK,
-            radius=dp(15),
+        self.catalog_category_button = CatalogFilterButton(
+            text=f"Категория: {category_text}",
+            icon_file="list.png",
         )
         self.catalog_category_button.bind(on_release=lambda instance: self.open_catalog_category_menu())
         controls.add_widget(self.catalog_category_button)
@@ -1699,13 +1827,6 @@ class PhoneShell(Screen):
         hero = self._card(bg_color=(0.985, 0.985, 0.985, 1))
         hero.add_widget(AppLabel("КОРЗИНА", font_size=11, color=TEXT_MUTED, bold=True))
         hero.add_widget(AppLabel("Товары для покупки", font_size=30, bold=True))
-        hero.add_widget(
-            AppLabel(
-                "Здесь собраны предложения, которые ты выбрал. После демо-оформления заказ появится в профиле.",
-                font_size=14,
-                color=(0.3, 0.3, 0.3, 1),
-            )
-        )
         content.add_widget(hero)
 
         cart_products = [product for product in PRODUCTS if product["id"] in self.app_ref.cart_ids]
@@ -1937,8 +2058,7 @@ class PhoneShell(Screen):
             return
 
         def build(content):
-            favorites = [product for product in PRODUCTS if product["id"] in self.app_ref.favorite_ids]
-            if not favorites:
+            def add_empty_state():
                 empty = self._card(spacing=dp(9))
                 empty.add_widget(AppLabel("Избранное пустое", font_size=22, bold=True, halign="center"))
                 empty.add_widget(
@@ -1950,11 +2070,46 @@ class PhoneShell(Screen):
                     )
                 )
                 content.add_widget(empty)
+
+            def remove_from_profile_favorites(product_id, card_ref):
+                if product_id in self.app_ref.favorite_ids:
+                    self.app_ref.favorite_ids.remove(product_id)
+                    self.app_ref.save_state()
+                    self.app_ref.toast("Удалено из избранного")
+
+                if card_ref.parent:
+                    content.remove_widget(card_ref)
+
+                favorites_left = [
+                    product for product in PRODUCTS
+                    if product["id"] in self.app_ref.favorite_ids
+                ]
+                if not favorites_left:
+                    add_empty_state()
+
+            favorites = [product for product in PRODUCTS if product["id"] in self.app_ref.favorite_ids]
+            if not favorites:
+                add_empty_state()
                 return
 
             for product in favorites:
                 card = self._card(spacing=dp(8))
-                card.add_widget(AppLabel(product["name"], font_size=19, bold=True))
+
+                top_row = BoxLayout(
+                    orientation="horizontal",
+                    size_hint_y=None,
+                    height=dp(42),
+                    spacing=dp(8),
+                )
+                top_row.add_widget(AppLabel(product["name"], font_size=19, bold=True, fixed_height=42))
+
+                favorite_btn = FavoriteIconButton("heart_on.png")
+                favorite_btn.bind(
+                    on_release=lambda instance, pid=product["id"], card_ref=card: remove_from_profile_favorites(pid, card_ref)
+                )
+                top_row.add_widget(favorite_btn)
+
+                card.add_widget(top_row)
                 card.add_widget(AppLabel(product["description"], font_size=13, color=TEXT_MUTED))
                 card.add_widget(AppLabel(f'{product["source"]} • {product["price"]} ₽', font_size=17, bold=True))
                 add_btn = AppButton(
