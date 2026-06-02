@@ -518,11 +518,12 @@ class ProductCard(RoundedBox):
 class NavItem(ButtonBehavior, RoundedBox):
     active = BooleanProperty(False)
 
-    def __init__(self, shell, page_name, icon_file, **kwargs):
+    def __init__(self, shell, page_name, icon_file, active_icon_file, **kwargs):
         super().__init__(**kwargs)
         self.shell = shell
         self.page_name = page_name
         self.icon_file = icon_file
+        self.active_icon_file = active_icon_file
         self.orientation = "vertical"
         self.padding = [dp(10), dp(8), dp(10), dp(8)]
         self.radius = dp(22)
@@ -545,10 +546,15 @@ class NavItem(ButtonBehavior, RoundedBox):
         self._update_state()
 
     def _update_state(self, *args):
-        self.bg_color = NAV_ACTIVE if self.active else BLACK
-        self.border_width = 1 if self.active else 0
-        self.border_color = (0.34, 0.34, 0.34, 1)
-        self.icon.opacity = 1 if self.active else 0.62
+        # Активная вкладка теперь определяется не обводкой, а отдельной PNG-иконкой *_on.png.
+        self.bg_color = BLACK
+        self.border_width = 0
+        active_source = self.active_icon_file if self.active else self.icon_file
+        new_source = asset_path(active_source)
+        if self.icon.source != new_source:
+            self.icon.source = new_source
+            self.icon.reload()
+        self.icon.opacity = 1 if self.active else 0.72
         self.icon.size = (dp(34), dp(34)) if self.active else (dp(30), dp(30))
 
     def on_press(self):
@@ -1033,6 +1039,7 @@ class SplashScreen(Screen):
         super().__init__(name="splash", **kwargs)
         self.app_ref = app_ref
         self.splash_icon = None
+        self.loading_icon = None
 
         root = Surface(orientation="vertical", bg_color=BLACK)
         center = AnchorLayout(anchor_x="center", anchor_y="center")
@@ -1055,6 +1062,7 @@ class SplashScreen(Screen):
         # GIF в Kivy обычно стабильнее, чем MP4, особенно при запуске на Windows.
         # Положи файл phone.gif рядом с main.py.
         phone_gif = asset_path("phone.gif")
+        logo_png = asset_path("logo.png")
 
         if os.path.exists(phone_gif):
             self.splash_icon = AnimatedGif(
@@ -1109,34 +1117,31 @@ class SplashScreen(Screen):
             anchor_x="center",
             anchor_y="center",
             size_hint_y=None,
-            height=dp(28),
+            height=dp(42),
         )
 
-        loader_bg = RoundedBox(
-            size_hint=(None, None),
-            size=(dp(136), dp(6)),
-            radius=dp(3),
-            bg_color=(0.26, 0.26, 0.26, 1),
-            border_width=0,
-        )
+        loading_gif = asset_path("loading.gif")
+        if os.path.exists(loading_gif):
+            self.loading_icon = AnimatedGif(
+                source=loading_gif,
+                allow_stretch=True,
+                keep_ratio=True,
+                size_hint=(None, None),
+                size=(dp(92), dp(34)),
+            )
+            loader_anchor.add_widget(self.loading_icon)
+        else:
+            # Резервный вариант, если loading.gif не найден рядом с main.py.
+            loader_anchor.add_widget(
+                Label(
+                    text="Загрузка...",
+                    color=(0.75, 0.75, 0.75, 1),
+                    font_size=dp(12),
+                    halign="center",
+                    valign="middle",
+                )
+            )
 
-        self.loader_fill = RoundedBox(
-            size_hint=(None, None),
-            size=(dp(0), dp(6)),
-            radius=dp(3),
-            bg_color=WHITE,
-            border_width=0,
-        )
-
-        loader_stack = AnchorLayout(
-            anchor_x="left",
-            anchor_y="center",
-            size_hint=(None, None),
-            size=(dp(136), dp(6)),
-        )
-        loader_stack.add_widget(loader_bg)
-        loader_stack.add_widget(self.loader_fill)
-        loader_anchor.add_widget(loader_stack)
         box.add_widget(loader_anchor)
 
         box.opacity = 0
@@ -1146,17 +1151,19 @@ class SplashScreen(Screen):
         self.box = box
 
     def on_enter(self, *args):
-        # Перезапускаем GIF с первого кадра при каждом входе на splash.
+        # Перезапускаем GIF-иконки с первого кадра при каждом входе на splash.
         if hasattr(self.splash_icon, "play"):
             self.splash_icon.play()
+        if hasattr(self.loading_icon, "play"):
+            self.loading_icon.play()
 
-        self.loader_fill.width = 0
         Animation(opacity=1, duration=0.55, t="out_quad").start(self.box)
-        Animation(width=dp(136), duration=5, t="linear").start(self.loader_fill)
 
     def on_leave(self, *args):
         if hasattr(self.splash_icon, "stop"):
             self.splash_icon.stop()
+        if hasattr(self.loading_icon, "stop"):
+            self.loading_icon.stop()
 
 
 class PhoneShell(Screen):
@@ -1192,14 +1199,14 @@ class PhoneShell(Screen):
         )
 
         items = [
-            ("home", "dom.png"),
-            ("catalog", "katalog.png"),
-            ("cart", "korzina.png"),
-            ("profile", "profile.png"),
+            ("home", "dom.png", "dom_on.png"),
+            ("catalog", "katalog.png", "katalog_on.png"),
+            ("cart", "korzina.png", "korzina_on.png"),
+            ("profile", "profile.png", "profile_on.png"),
         ]
 
-        for page_name, icon_file in items:
-            item = NavItem(self, page_name, icon_file)
+        for page_name, icon_file, active_icon_file in items:
+            item = NavItem(self, page_name, icon_file, active_icon_file)
             self.nav_items[page_name] = item
             nav.add_widget(item)
 
