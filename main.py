@@ -336,6 +336,39 @@ class CategoryCard(ButtonBehavior, RoundedBox):
         self.app_ref.set_selected_category(self.title)
 
 
+class FavoriteIconButton(ButtonBehavior, RoundedBox):
+    def __init__(self, icon_file, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "vertical"
+        self.padding = [dp(7), dp(7), dp(7), dp(7)]
+        self.size_hint = (None, None)
+        self.size = (dp(42), dp(38))
+        self.radius = dp(13)
+        self.bg_color = WHITE
+        self.border_color = BLACK
+        self.border_width = 1
+
+        self.icon = Image(
+            source=asset_path(icon_file),
+            size_hint=(None, None),
+            size=(dp(24), dp(24)),
+            allow_stretch=True,
+            keep_ratio=True,
+        )
+
+        anchor = AnchorLayout(anchor_x="center", anchor_y="center")
+        anchor.add_widget(self.icon)
+        self.add_widget(anchor)
+
+    def on_press(self):
+        Animation(opacity=0.65, duration=0.06).start(self)
+        Animation(size=(dp(21), dp(21)), duration=0.06).start(self.icon)
+
+    def on_release(self):
+        Animation(opacity=1, duration=0.14, t="out_quad").start(self)
+        Animation(size=(dp(24), dp(24)), duration=0.14, t="out_quad").start(self.icon)
+
+
 class ProductCard(RoundedBox):
     def __init__(self, app_ref, product, **kwargs):
         super().__init__(**kwargs)
@@ -361,16 +394,8 @@ class ProductCard(RoundedBox):
         )
 
         is_favorite = product["id"] in app_ref.favorite_ids
-        fav_button = AppButton(
-            text="♥" if is_favorite else "♡",
-            fixed_width=42,
-            fixed_height=38,
-            bg_color=BLACK if is_favorite else WHITE,
-            text_color=PINK if is_favorite else BLACK,
-            border_color=BLACK,
-            radius=dp(13),
-            font_size_value=19,
-        )
+        fav_icon = "heart_on.png" if is_favorite else "heart_off.png"
+        fav_button = FavoriteIconButton(fav_icon)
         fav_button.bind(on_release=lambda instance: app_ref.toggle_favorite(product["id"]))
         top.add_widget(fav_button)
         self.add_widget(top)
@@ -874,9 +899,9 @@ class SplashScreen(Screen):
         box.add_widget(title)
 
         subtitle = Label(
-            text="выгодные предложения — в один клик",
+            text="ВЫГОДНЫЕ ПРЕДЛОЖЕНИЯ - В ОДИН КЛИК",
             color=(0.75, 0.75, 0.75, 1),
-            font_size=dp(13),
+            font_size=dp(12),
             halign="center",
             valign="middle",
             size_hint_y=None,
