@@ -125,8 +125,32 @@ CATEGORIES = [
 
 
 def asset_path(filename):
-    """Возвращает путь к png-файлам, лежащим рядом с main.py."""
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    """Возвращает путь к файлу ассета рядом с main.py.
+
+    На Android/Linux регистр букв важен: dom.png и Dom.png — разные файлы.
+    Поэтому сначала ищем точное имя, а если его нет — пробуем найти файл
+    без учета регистра. Это помогает, если картинка нормально открывалась
+    на Windows, но в APK показывалась белым/серым квадратом.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    direct_path = os.path.join(base_dir, filename)
+
+    if os.path.exists(direct_path):
+        return direct_path
+
+    try:
+        target_name = filename.lower()
+        for item in os.listdir(base_dir):
+            if item.lower() == target_name:
+                return os.path.join(base_dir, item)
+    except Exception:
+        pass
+
+    return direct_path
+
+
+def asset_exists(filename):
+    return os.path.exists(asset_path(filename))
 
 
 def bind_adaptive_height(layout):
@@ -571,6 +595,13 @@ class ProductCard(RoundedBox):
 class NavItem(ButtonBehavior, RoundedBox):
     active = BooleanProperty(False)
 
+    FALLBACK_TEXT = {
+        "home": "⌂",
+        "catalog": "▦",
+        "cart": "▤",
+        "profile": "●",
+    }
+
     def __init__(self, shell, page_name, icon_file, active_icon_file, **kwargs):
         super().__init__(**kwargs)
         self.shell = shell
@@ -585,41 +616,87 @@ class NavItem(ButtonBehavior, RoundedBox):
         self.size_hint_x = 1
 
         self.icon_anchor = AnchorLayout(anchor_x="center", anchor_y="center")
+
         self.icon = Image(
-            source=asset_path(icon_file),
+            source="",
             size_hint=(None, None),
             size=(dp(30), dp(30)),
             allow_stretch=True,
             keep_ratio=True,
         )
+
+        # Резервный вариант: если PNG не попал в APK или имя файла отличается
+        # регистром, не показываем белый квадрат, а показываем понятный символ.
+        self.fallback_label = Label(
+            text=self.FALLBACK_TEXT.get(page_name, "•"),
+            color=WHITE,
+            font_size=dp(28),
+            bold=True,
+            halign="center",
+            valign="middle",
+            opacity=0,
+        )
+        self.fallback_label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
+
         self.icon_anchor.add_widget(self.icon)
+        self.icon_anchor.add_widget(self.fallback_label)
         self.add_widget(self.icon_anchor)
 
         self.bind(active=self._update_state)
         self._update_state()
 
+    def _set_icon_source(self, filename):
+        resolved = asset_path(filename)
+
+        if os.path.exists(resolved):
+            self.icon.opacity = 1
+            self.fallback_label.opacity = 0
+            if self.icon.source != resolved:
+                self.icon.source = resolved
+                self.icon.reload()
+            return
+
+        # Если нужной иконки нет, пробуем обычную иконку вкладки.
+        fallback_resolved = asset_path(self.icon_file)
+        if os.path.exists(fallback_resolved):
+            self.icon.opacity = 1
+            self.fallback_label.opacity = 0
+            if self.icon.source != fallback_resolved:
+                self.icon.source = fallback_resolved
+                self.icon.reload()
+            return
+
+        # Последний резерв: текстовая иконка, чтобы не было белых квадратов.
+        self.icon.opacity = 0
+        self.fallback_label.opacity = 1
+        self.fallback_label.color = WHITE
+
     def _update_state(self, *args):
-        # Активная вкладка теперь определяется не обводкой, а отдельной PNG-иконкой *_on.png.
+        # Активная вкладка определяется отдельной PNG-иконкой *_on.png.
+        # Обводки и фоновые плашки не используем.
         self.bg_color = BLACK
         self.border_width = 0
-        active_source = self.active_icon_file if self.active else self.icon_file
-        new_source = asset_path(active_source)
-        if self.icon.source != new_source:
-            self.icon.source = new_source
-            self.icon.reload()
-        self.icon.opacity = 1 if self.active else 0.72
+
+        target_icon = self.active_icon_file if self.active else self.icon_file
+        self._set_icon_source(target_icon)
+
+        self.icon.opacity = 1 if self.active else 0.78 if self.icon.opacity else 0
+        self.fallback_label.opacity = 1 if not self.icon.opacity else 0
+        self.fallback_label.font_size = dp(31) if self.active else dp(28)
         self.icon.size = (dp(34), dp(34)) if self.active else (dp(30), dp(30))
 
     def on_press(self):
         Animation(opacity=0.68, duration=0.06).start(self)
         Animation(size=(dp(28), dp(28)), duration=0.06).start(self.icon)
+        Animation(font_size=dp(25), duration=0.06).start(self.fallback_label)
 
     def on_release(self):
         Animation(opacity=1, duration=0.14).start(self)
         target_size = (dp(34), dp(34)) if self.active else (dp(30), dp(30))
+        target_font = dp(31) if self.active else dp(28)
         Animation(size=target_size, duration=0.14, t="out_quad").start(self.icon)
+        Animation(font_size=target_font, duration=0.14, t="out_quad").start(self.fallback_label)
         self.shell.open_tab(self.page_name)
-
 
 class InputBox(RoundedBox):
     def __init__(self, hint_text, **kwargs):
