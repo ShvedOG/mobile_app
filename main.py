@@ -5,6 +5,7 @@ import os
 from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.core.window import Window
+from kivy.utils import platform
 from kivy.graphics import Color, Line, Rectangle, RoundedRectangle
 from kivy.metrics import dp
 from kivy.graphics.texture import Texture
@@ -1171,6 +1172,8 @@ class SplashScreen(Screen):
             height=dp(148),
         )
 
+        # GIF в Kivy обычно стабильнее, чем MP4, особенно при запуске на Windows.
+        # Положи файл phone.gif рядом с main.py.
         phone_gif = asset_path("phone.gif")
         logo_png = asset_path("logo.png")
 
@@ -1212,7 +1215,7 @@ class SplashScreen(Screen):
         box.add_widget(title)
 
         subtitle = Label(
-            text="ВЫГОДНЫЕ ПРЕДЛОЖЕНИЯ - В ОДИН КЛИК",
+            text="выгодные предложения — в один клик",
             color=BLACK,
             font_size=dp(13),
             halign="center",
@@ -2058,7 +2061,7 @@ class PhoneShell(Screen):
         def build(content):
             def add_empty_state():
                 empty = self._card(spacing=dp(9))
-                empty.add_widget(AppLabel("Список пуст", font_size=22, bold=True, halign="center"))
+                empty.add_widget(AppLabel("Избранное пустое", font_size=22, bold=True, halign="center"))
                 empty.add_widget(
                     AppLabel(
                         "Нажми сердечко у товара в каталоге, чтобы сохранить его здесь.",
@@ -2220,10 +2223,16 @@ class ClickMarketApp(App):
                 print(f"Не удалось установить иконку окна: {error}")
 
         Window.clearcolor = PAGE_BG
-        Window.size = (390, 760)
-        Window.minimum_width = 360
-        Window.minimum_height = 640
         Window.softinput_mode = "below_target"
+
+        # ВАЖНО: на Android нельзя принудительно задавать размер окна.
+        # Если оставить Window.size = (390, 760), приложение рисуется маленьким
+        # прямоугольником в углу экрана телефона. Размер окна задаем только на ПК,
+        # чтобы удобно тестировать мобильный интерфейс.
+        if platform not in ("android", "ios"):
+            Window.size = (390, 760)
+            Window.minimum_width = 360
+            Window.minimum_height = 640
 
         self.storage_path = os.path.join(self.user_data_dir, "click_market_storage.json")
         self.load_state()
